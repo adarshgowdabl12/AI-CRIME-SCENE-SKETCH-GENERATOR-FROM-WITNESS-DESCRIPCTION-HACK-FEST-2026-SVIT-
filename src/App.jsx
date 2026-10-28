@@ -72,7 +72,15 @@ function App() {
     try {
       const result = await analyzeWitnessStatement(statement)
       setScene(result)
-      setToast('Analysis response received. Review every detail against the original statement.')
+      setBackendStatus((current) => ({
+        ...current,
+        status: 'online',
+        analysisMode: result.analysisMode,
+        message: `Backend healthy; ${result.analysisMode === 'demo' ? 'rule-based demo analyzer' : 'live AI analyzer'}.`,
+      }))
+      setToast(result.analysisMode === 'demo'
+        ? 'Rule-based demo analysis received. Review every detail against the original statement.'
+        : 'Live analysis response received. Review every detail against the original statement.')
     } catch (requestError) {
       setError(requestError.message || 'Analysis failed. Try again or explore the sample case.')
     } finally {
@@ -115,7 +123,7 @@ function App() {
   const page = pageTitles[pageId] ? pageId : 'dashboard'
   const isSaved = Boolean(scene && savedScenes.some((saved) => saved.id === scene.id))
   const connectionLabel = backendStatus.status === 'online'
-    ? 'AI CONNECTED'
+    ? backendStatus.analysisMode === 'live' ? 'AI CONNECTED' : 'DEMO ANALYZER'
     : backendStatus.status === 'offline'
       ? 'BACKEND OFFLINE'
       : backendStatus.analysisConfigured

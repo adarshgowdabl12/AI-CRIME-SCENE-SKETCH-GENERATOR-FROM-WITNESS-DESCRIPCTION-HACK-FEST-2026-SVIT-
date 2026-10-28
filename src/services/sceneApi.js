@@ -1,7 +1,7 @@
 import { buildTrustDetails } from '../utils/trustLayer.js'
 
-const reconstructionUrl = import.meta.env.VITE_RECONSTRUCTION_URL
-const healthUrl = import.meta.env.VITE_BACKEND_HEALTH_URL
+const reconstructionUrl = import.meta.env.VITE_RECONSTRUCTION_URL || '/api/analyze-scene'
+const healthUrl = import.meta.env.VITE_BACKEND_HEALTH_URL || '/health'
 
 export function getServiceConfiguration() {
   return {
@@ -11,11 +11,18 @@ export function getServiceConfiguration() {
 }
 
 export async function checkBackendHealth() {
-  if (!healthUrl) return { status: 'unconfigured', message: 'Health check URL is not configured.' }
   try {
     const response = await fetch(healthUrl, { signal: AbortSignal.timeout(5000) })
     if (!response.ok) return { status: 'offline', message: `Health check returned ${response.status}.` }
-    return { status: 'online', message: 'Backend health check succeeded.' }
+    const body = await response.json()
+    if (body?.status !== 'ok' || !['demo', 'live'].includes(body.analysis_mode)) {
+      return { status: 'offline', message: 'Health endpoint returned an unsupported status.' }
+    }
+    return {
+      status: 'online',
+      analysisMode: body.analysis_mode,
+      message: `Backend healthy; ${body.analysis_mode === 'demo' ? 'rule-based demo analyzer' : 'live AI analyzer'}.`,
+    }
   } catch {
     return { status: 'offline', message: 'Could not reach the configured health check URL.' }
   }
@@ -33,7 +40,7 @@ export async function analyzeWitnessStatement(statement) {
     response = await fetch(reconstructionUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ description: statement }),
+      body: JSON.stringify({ witness_description: statement }),
       signal: AbortSignal.timeout(30000),
     })
   } catch {
@@ -49,61 +56,102 @@ export async function analyzeWitnessStatement(statement) {
     throw new Error('The analysis endpoint returned invalid JSON.')
   }
 
-  if (!result || typeof result !== 'object' || typeof result.summary !== 'string' || !Array.isArray(result.objects)) {
-    throw new Error('The analysis response is missing required fields: summary and objects.')
+  if (!result || typeof result !== 'object' || typeof (result.scene_summary || result.summary) !== 'string' || !Array.isArray(result.objects)) {
+    throw new Error('The analysis response is missing required fields: scene_summary and objects.')
   }
+
+  const toPosition = (position) => {
+    if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return null
+    const status = String(position.status || '').toUpperCase()
+    return {
+      ...position,
+      label: position.label || 'Position supplied',
+      status: ['STATED', 'REPORTED'].includes(status) ? 'reported' : ['MANUAL', 'MANUALLY PLACED'].includes(status) ? 'manual' : ['INFERRED', 'ILLUSTRATIVE'].includes(status) ? 'illustrative' : 'unknown',
+    }
+  }
+  const toUiObject = (object, index) => ({
+    id: object.id || object.object_id || `object-${index + 1}`,
+    name: object.name || `Object ${index + 1}`,
+    description: object.description || 'No description supplied.',
+    source_text: object.source_text || '',
+    sourceText: object.source_text || '',
+    status: object.status || '',
+    reason: object.reason || '',
+    approximate_position: object.approximate_position || null,
+    position: toPosition(object.approximate_position),
+  })
+  const toUiEntry = (entry, index, labelPrefix) => ({
+    ...entry,
+    id: entry.name ? `${labelPrefix}-${index + 1}` : `${labelPrefix}-${index + 1}`,
+    label: entry.name || `${labelPrefix} ${index + 1}`,
+    value: entry.description || '',
+    text: entry.description || '',
+    source_text: entry.source_text || '',
+    sourceText: entry.source_text || '',
+    status: entry.status || 'UNKNOWN',
+    reason: entry.reason || '',
+    objectId: entry.object_id || null,
+  })
+  const apiObjects = result.objects.map(toUiObject)
+  const apiPeople = (result.people_descriptions || result.people || []).map((person, index) => ({
+    ...toUiEntry(person, index, 'Person'),
+    description: person.description || '',
+  }))
+  const apiObservations = (result.explicit_observations || result.observations || []).map((observation, index) => ({
+    ...toUiEntry(observation, index, 'Observation'),
+    name: observation.name || `Observation ${index + 1}`,
+    objectId: observation.object_id || observation.objectId || null,
+  }))
+  const apiSettings = [result.location, result.lighting]
+    .filter(Boolean)
+    .map((entry, index) => toUiEntry(entry, index, 'Setting'))
+  const apiUncertainties = (result.uncertain_details || result.uncertainties || []).map((item) => ({
+    ...item,
+    text: item.description || item.text || '',
+    source_text: item.source_text || '',
+    status: item.status || 'UNKNOWN',
+    reason: item.reason || '',
+  }))
+  const apiMissing = (result.missing_information || result.missingInformation || []).map((item) => ({
+    ...item,
+    text: item.description || item.text || '',
+    source_text: item.source_text || '',
+    status: 'UNKNOWN',
+    reason: item.reason || '',
+  }))
 
   const scene = {
     ...result,
     id: crypto.randomUUID(),
     title: result.title || 'Untitled reconstruction',
     createdAt: new Date().toISOString(),
-    status: 'Analyzed',
-    isDemo: false,
+    status: result.analysis_mode === 'demo' ? 'Demo analysis' : 'Analyzed',
+    isDemo: result.analysis_mode === 'demo',
+    analysisMode: result.analysis_mode || 'live',
     statement,
-    objects: result.objects.map((object, index) => ({
-      id: object.id || `object-${index + 1}`,
-      name: object.name || 'Unspecified object',
-      description: object.description || 'No description supplied.',
-      source_text: object.source_text ?? object.sourceText ?? '',
-      sourceText: object.source_text ?? object.sourceText ?? '',
-      status: object.status || '',
-      reason: object.reason || '',
-      approximate_position: object.approximate_position || object.position || null,
-      position: (() => {
-        const position = object.approximate_position || object.position
-        if (!position) return { x: 50, y: 50, label: 'Position not stated', status: 'unknown' }
-        const status = String(position.status || '').toUpperCase()
-        return {
-          ...position,
-          x: position.x ?? 50,
-          y: position.y ?? 50,
-          label: position.label || 'Position supplied',
-          status: ['STATED', 'REPORTED'].includes(status) ? 'reported' : ['MANUAL', 'MANUALLY PLACED'].includes(status) ? 'manual' : ['INFERRED', 'ILLUSTRATIVE'].includes(status) ? 'illustrative' : 'unknown',
-        }
-      })(),
-    })),
-    people: Array.isArray(result.people) ? result.people.map((person) => ({ ...person, source_text: person.source_text ?? person.sourceText ?? '' })) : [],
-    locationLighting: Array.isArray(result.locationLighting) ? result.locationLighting.map((item) => ({ ...item, source_text: item.source_text ?? item.sourceText ?? '' })) : [],
-    observations: Array.isArray(result.observations) ? result.observations.map((item) => ({ ...item, source_text: item.source_text ?? item.sourceText ?? '' })) : [],
-    uncertainties: Array.isArray(result.uncertainties) ? result.uncertainties : [],
-    missingInformation: Array.isArray(result.missingInformation) ? result.missingInformation : [],
+    summary: result.scene_summary || result.summary,
+    objects: apiObjects,
+    people: apiPeople,
+    locationLighting: apiSettings,
+    observations: apiObservations,
+    uncertainties: apiUncertainties,
+    missingInformation: apiMissing,
   }
 
-  const trustByObjectId = new Map(buildTrustDetails(scene, statement).filter((item) => item.type === 'OBJECT' && item.objectId).map((item) => [item.objectId, item]))
-  const allTrustDetails = buildTrustDetails(scene, statement)
+  const trustDetails = buildTrustDetails(scene, statement)
+  const normalizedByType = (type) => new Map(trustDetails.filter((detail) => detail.type === type).map((detail) => [detail.id.split(':')[1], detail]))
+  const objectEvidence = normalizedByType('OBJECT')
   scene.objects = scene.objects.map((object) => {
-    const trust = trustByObjectId.get(object.id)
-    return trust ? { ...object, source_text: trust.source_text, sourceText: trust.source_text, status: trust.status, reason: trust.reason } : object
+    const evidence = objectEvidence.get(object.id) || trustDetails.find((detail) => detail.type === 'OBJECT' && detail.name === object.name)
+    return evidence ? { ...object, source_text: evidence.source_text, sourceText: evidence.source_text, status: evidence.status, reason: evidence.reason } : object
   })
-  const normalizeEvidenceEntries = (entries, type, getName) => entries.map((entry, index) => {
-    const name = getName(entry, index)
-    const trust = allTrustDetails.find((item) => item.type === type && item.name === name)
-    return trust ? { ...entry, source_text: trust.source_text, sourceText: trust.source_text, status: trust.status, reason: trust.reason } : entry
-  })
-  scene.people = normalizeEvidenceEntries(scene.people, 'PERSON', (person, index) => person.name || `Person ${index + 1}`)
-  scene.locationLighting = normalizeEvidenceEntries(scene.locationLighting, 'SETTING', (entry, index) => entry.label || `Setting ${index + 1}`)
-  scene.observations = normalizeEvidenceEntries(scene.observations, 'OBSERVATION', (entry, index) => entry.name || `Observation ${index + 1}`)
+
+  for (const [entries, type] of [[scene.people, 'PERSON'], [scene.locationLighting, 'SETTING'], [scene.observations, 'OBSERVATION']]) {
+    for (const entry of entries) {
+      const evidence = trustDetails.find((detail) => detail.type === type && detail.name === (entry.name || entry.label))
+      if (evidence) Object.assign(entry, { source_text: evidence.source_text, sourceText: evidence.source_text, status: evidence.status, reason: evidence.reason })
+    }
+  }
 
   return scene
 }

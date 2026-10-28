@@ -61,6 +61,7 @@ export default function SceneCanvas({ objects = [], selectedId, onSelect, onMove
       <path d="M39 54 L48 50 L53 57 L50 65 L40 63 Z" fill="#202522" stroke="#70796f" strokeWidth=".35" />
       <path d="M40 56 L49 60 M46 51 L44 62" stroke="#4c554d" strokeWidth=".3" />
       {objects.map((object) => {
+        if (!Number.isFinite(object.position?.x) || !Number.isFinite(object.position?.y)) return null
         const status = positionStyle[object.position?.status] || positionStyle.unknown
         const active = selectedId === object.id
         const x = object.position?.x ?? 50

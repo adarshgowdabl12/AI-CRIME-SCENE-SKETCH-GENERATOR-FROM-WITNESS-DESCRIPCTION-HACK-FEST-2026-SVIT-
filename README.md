@@ -14,15 +14,38 @@ The reconstruction page includes **TRACE TrustLayer — Evidence & Confidence**.
 
 ## Run locally
 
-Requires Node.js and npm.
+Requires Node.js/npm and Python 3.10+.
+
+Start the backend in Terminal 1 (PowerShell):
 
 ```powershell
-cd crime-scene-reconstruction
+cd "C:\Users\adars\Desktop\hackathon 2026\crime-scene-reconstruction\backend"
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+```
+
+If PowerShell blocks activation, use `.venv\Scripts\python.exe -m pip install -r requirements.txt` and `.venv\Scripts\python.exe -m uvicorn main:app --reload --host 127.0.0.1 --port 8000` without activating.
+
+Start the frontend in Terminal 2:
+
+```powershell
+cd "C:\Users\adars\Desktop\hackathon 2026\crime-scene-reconstruction"
 npm.cmd install
 npm.cmd run dev
 ```
 
-Open the local URL printed by Vite, usually `http://localhost:5173/`.
+Open `http://localhost:5173/`. The Vite development proxy forwards `/api/*` and `/health` to `http://127.0.0.1:8000`, so no frontend environment setup is needed for local development. The backend API is at `http://127.0.0.1:8000`; interactive docs are at `http://127.0.0.1:8000/docs`.
+
+Test the backend from a third terminal after installing its dependencies:
+
+```powershell
+cd "C:\Users\adars\Desktop\hackathon 2026\crime-scene-reconstruction\backend"
+.venv\Scripts\python.exe -m pytest -q
+Invoke-RestMethod http://127.0.0.1:8000/health
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/analyze-scene -ContentType "application/json" -Body '{"witness_description":"I saw a person standing near a table. A chair was beside the table."}'
+```
 
 ## Demo and local storage
 
@@ -32,13 +55,13 @@ Saved scenes are stored in the browser's local storage on this device only. They
 
 ## Optional backend integration
 
-No backend endpoints or response schemas were present in the inspected project. To configure an existing service, copy `.env.example` to `.env.local`, set the public endpoint URLs, and restart Vite. Do not put secret keys in frontend environment variables.
+The bundled analyzer is rule-based demo logic, not a live AI model. The backend accepts `TRACE_CORS_ORIGINS` as a comma-separated environment variable for direct browser clients; local Vite development uses a same-origin proxy. For a separately hosted frontend, set `VITE_RECONSTRUCTION_URL` and `VITE_BACKEND_HEALTH_URL` to public endpoint URLs in `.env.local`, then restart Vite. Never put secret keys in frontend environment variables.
 
-The analysis endpoint is expected to accept `POST` JSON `{ "description": "..." }` and return a JSON object with a string `summary` and an `objects` array. Optional fields are `title`, `people`, `locationLighting`, `observations`, `uncertainties`, and `missingInformation`. Objects may include `id`, `name`, `description`, `sourceText`, and `position` (`x`, `y`, `label`, `status`). Missing positions are marked unknown rather than asserted as facts. Adapt `src/services/sceneApi.js` to match a different existing backend contract.
+The analysis endpoint is `POST /api/analyze-scene` with `{ "witness_description": "..." }` (the legacy `{ "description": "..." }` key is also accepted). It returns `scene_summary`, `location`, `lighting`, `objects`, `people_descriptions`, `explicit_observations`, `uncertain_details`, `missing_information`, and `analysis_mode`. The frontend adapter in `src/services/sceneApi.js` maps this response into the existing scene UI. Relational positions may include a text label but intentionally have null coordinates; the scene canvas does not draw unlocated objects at guessed coordinates.
 
 Objects, people, settings, and observations may additionally provide `source_text`, `status` (`STATED`, `INFERRED`, or `UNKNOWN`), and `reason`. A source value can be a quote or sentence fragment; the frontend resolves it to the containing sentence only if that text occurs in the submitted statement. `approximate_position` is display-only and does not establish that a position was stated. Explicit `INFERRED` and `UNKNOWN` classifications are preserved.
 
-The optional health endpoint is checked with `GET`. AI Connected is shown only when that check succeeds.
+`GET /health` reports backend status and `analysis_mode: "demo"`. A healthy backend is not the same as live AI; the interface labels this as a demo analyzer.
 
 ## Checks
 
@@ -48,4 +71,6 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-Use **Load Demo** to preview a fictional incident. **Generate Scene** is a UI placeholder; scene generation is not connected yet. No API key is required.
+Backend tests: from `backend`, run `.venv\Scripts\python.exe -m pytest -q`.
+
+Use **Load Sample** to preview the frontend's fictional sample. **Generate Scene Analysis** calls the FastAPI rule-based demo analyzer when the backend is running. It does not call an AI model and makes no claim of forensic verification.
