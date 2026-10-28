@@ -2,6 +2,76 @@ import { buildTrustDetails } from '../utils/trustLayer.js'
 
 const reconstructionUrl = import.meta.env.VITE_RECONSTRUCTION_URL || '/api/analyze-scene'
 const healthUrl = import.meta.env.VITE_BACKEND_HEALTH_URL || '/health'
+const imageGenerationUrl = import.meta.env.VITE_IMAGE_GENERATION_URL || '/api/generate-scene-image'
+const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+
+const portraitApiUrl = (path) => `${apiBaseUrl}${path}`
+
+export function getGeneratedImageUrl(path) {
+  if (typeof path !== 'string' || !path.startsWith('/generated/')) {
+    throw new Error('Image service returned an unsupported image path.')
+  }
+  return `${apiBaseUrl}${path}`
+}
+
+async function postPortraitRequest(path, body, timeout, errorLabel) {
+  let response
+  try {
+    response = await fetch(portraitApiUrl(path), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeout),
+    })
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw new Error(`${errorLabel} timed out. Try again later.`, { cause: error })
+    throw new Error(`Could not reach the ${errorLabel.toLowerCase()} service. Check the backend connection.`, { cause: error })
+  }
+
+  let result
+  try {
+    result = await response.json()
+  } catch {
+    throw new Error(`The ${errorLabel.toLowerCase()} service returned an invalid response.`)
+  }
+  if (!response.ok) {
+    const detail = result?.detail
+    const message = typeof detail === 'string' ? detail : detail?.message
+    throw new Error(message || `${errorLabel} failed with status ${response.status}.`)
+  }
+  return result
+}
+
+export async function analyzePersonDescription(witnessDescription) {
+  const result = await postPortraitRequest(
+    '/api/analyze-person-description',
+    { witness_description: witnessDescription },
+    90_000,
+    'Appearance analysis',
+  )
+  if (
+    !result
+    || typeof result.target_unclear !== 'boolean'
+    || !result.attributes
+    || typeof result.attributes !== 'object'
+  ) {
+    throw new Error('The appearance-analysis service returned incomplete trait data.')
+  }
+  return result
+}
+
+export async function generateSuspectPortrait(request) {
+  const result = await postPortraitRequest(
+    '/api/generate-suspect-portrait',
+    request,
+    160_000,
+    'Portrait generation',
+  )
+  if (result?.generation_status !== 'generated' || typeof result.image_url !== 'string') {
+    throw new Error('The portrait service did not return a usable image.')
+  }
+  return { ...result, image_url: getGeneratedImageUrl(result.image_url) }
+}
 
 export function getServiceConfiguration() {
   return {
@@ -10,21 +80,42 @@ export function getServiceConfiguration() {
   }
 }
 
+export function getImageGenerationUrl() {
+  return imageGenerationUrl
+}
+
+function offlineHealth(message) {
+  return {
+    status: 'offline',
+    message,
+    imageGenerationConfigured: false,
+    imageProvider: 'not_configured',
+    imageModel: null,
+    portraitAnalysisConfigured: false,
+    portraitGenerationConfigured: false,
+  }
+}
+
 export async function checkBackendHealth() {
   try {
     const response = await fetch(healthUrl, { signal: AbortSignal.timeout(5000) })
-    if (!response.ok) return { status: 'offline', message: `Health check returned ${response.status}.` }
+    if (!response.ok) return offlineHealth(`Health check returned ${response.status}.`)
     const body = await response.json()
     if (body?.status !== 'ok' || !['demo', 'live'].includes(body.analysis_mode)) {
-      return { status: 'offline', message: 'Health endpoint returned an unsupported status.' }
+      return offlineHealth('Health endpoint returned an unsupported status.')
     }
     return {
       status: 'online',
       analysisMode: body.analysis_mode,
       message: `Backend healthy; ${body.analysis_mode === 'demo' ? 'rule-based demo analyzer' : 'live AI analyzer'}.`,
+      imageGenerationConfigured: body.image_generation_configured === true,
+      imageProvider: typeof body.image_provider === 'string' ? body.image_provider : 'not_configured',
+      imageModel: typeof body.image_model === 'string' ? body.image_model : null,
+      portraitAnalysisConfigured: body.portrait_analysis_configured === true,
+      portraitGenerationConfigured: body.portrait_generation_configured === true,
     }
   } catch {
-    return { status: 'offline', message: 'Could not reach the configured health check URL.' }
+    return offlineHealth('Could not reach the configured health check URL.')
   }
 }
 

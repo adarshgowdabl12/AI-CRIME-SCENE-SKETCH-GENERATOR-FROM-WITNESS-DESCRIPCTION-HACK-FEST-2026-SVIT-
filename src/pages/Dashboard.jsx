@@ -7,6 +7,20 @@ const steps = [
   { index: '03', title: 'Visualize', detail: 'Review a schematic without implying certainty.', icon: ScanLine },
 ]
 
+function connectionLabel(status) {
+  if (status.status === 'online') return status.analysisMode === 'live' ? 'AI CONNECTED' : 'DEMO ANALYZER'
+  if (status.status === 'checking') return 'CHECKING'
+  if (status.status === 'offline') return 'OFFLINE'
+  return 'NOT CHECKED'
+}
+
+function imageConfigurationLabel(status) {
+  if (status.status === 'checking') return 'CHECKING'
+  if (status.status !== 'online') return 'UNAVAILABLE'
+  if (!status.imageGenerationConfigured) return 'NOT CONFIGURED'
+  return status.imageModel ? `READY · ${status.imageModel}` : 'READY'
+}
+
 export default function Dashboard({ sample, savedScenes, backendStatus, onCreate, onSample, onOpenScene, onExploreLibrary }) {
   const recent = savedScenes.slice(0, 3)
   return <div className="dashboard-page page-enter">
@@ -37,7 +51,7 @@ export default function Dashboard({ sample, savedScenes, backendStatus, onCreate
         <div className="section-title-row"><div><span className="mini-label">YOUR WORKSPACE</span><h2>Recent scenes</h2></div><button className="inline-link" onClick={onExploreLibrary}>Open library <ArrowRight size={14} /></button></div>
         {recent.length ? <div className="recent-list">{recent.map((scene) => <button className="recent-row" key={scene.id} onClick={() => onOpenScene(scene)}><span className="recent-icon"><ScanLine size={16} /></span><span className="recent-info"><strong>{scene.title}</strong><small>{new Date(scene.savedAt || scene.createdAt).toLocaleDateString()} <i /> {scene.objects?.length || 0} objects</small></span><span className="scene-state">{scene.isDemo ? 'DEMO' : 'SAVED'}</span><ArrowUpRight size={15} className="recent-arrow" /></button>)}</div> : <div className="recent-empty"><span className="recent-icon"><Clock3 size={16} /></span><span><strong>No saved scenes yet</strong><small>Your locally saved reconstructions appear here.</small></span><button aria-label="Create your first reconstruction" onClick={onCreate}><ArrowUpRight size={16} /></button></div>}
       </div>
-      <aside className="system-card"><div className="section-title-row"><div><span className="mini-label">ENVIRONMENT</span><h2>System status</h2></div><span className="status-indicator"><i className={backendStatus.status === 'online' && backendStatus.analysisMode === 'live' ? 'indicator-online' : ''} />{backendStatus.status === 'online' ? backendStatus.analysisMode === 'live' ? 'AI CONNECTED' : 'DEMO ANALYZER' : backendStatus.status === 'offline' ? 'OFFLINE' : 'NOT CHECKED'}</span></div><div className="system-line"><span>Scene analysis</span><strong className="system-unavailable"><i />{backendStatus.analysisConfigured ? (backendStatus.status === 'online' ? backendStatus.analysisMode === 'live' ? 'Live AI endpoint' : 'Rule-based demo analyzer' : 'Endpoint unavailable') : 'Not configured'}</strong></div><div className="system-line"><span>Health check</span><strong className={backendStatus.status === 'online' ? 'system-ok' : ''}><i />{backendStatus.healthConfigured ? backendStatus.message : 'Not configured'}</strong></div><p><Sparkles size={13} /> Demo analysis is rule-based and is not a live AI model.</p></aside>
+      <aside className="system-card"><div className="section-title-row"><div><span className="mini-label">ENVIRONMENT</span><h2>System status</h2></div><span className="status-indicator"><i className={backendStatus.status === 'online' && backendStatus.analysisMode === 'live' ? 'indicator-online' : ''} />{connectionLabel(backendStatus)}</span></div><div className="system-line"><span>Scene analysis</span><strong className="system-unavailable"><i />{backendStatus.analysisConfigured ? (backendStatus.status === 'online' ? backendStatus.analysisMode === 'live' ? 'Live AI endpoint' : 'Rule-based demo analyzer' : backendStatus.status === 'checking' ? 'Checking…' : 'Endpoint unavailable') : 'Not configured'}</strong></div><div className="system-line"><span>Image generation</span><strong className={backendStatus.imageGenerationConfigured && backendStatus.status === 'online' ? 'system-ok' : 'system-unavailable'}><i />{imageConfigurationLabel(backendStatus)}</strong></div><div className="system-line"><span>Health check</span><strong className={backendStatus.status === 'online' ? 'system-ok' : ''}><i />{backendStatus.healthConfigured ? backendStatus.message : 'Not configured'}</strong></div><p><Sparkles size={13} /> Demo analysis is rule-based and is not a live AI model.</p></aside>
     </section>
 
     <section className="product-note"><span className="note-mark"><CircleHelp size={17} /></span><div><span className="mini-label">WHAT TRACE AI IS FOR</span><p>A structured way to examine witness descriptions. TRACE AI does not identify people, establish guilt, or determine what actually happened.</p></div><span className="note-tail">HUMAN REVIEW<br />ALWAYS REQUIRED</span></section>

@@ -30,19 +30,40 @@ function App() {
   const [toast, setToast] = useState('')
   const [backendStatus, setBackendStatus] = useState(() => ({
     ...getServiceConfiguration(),
-    status: 'unconfigured',
-    message: 'Health check URL is not configured.',
+    status: 'checking',
+    message: 'Checking backend health…',
+    imageGenerationConfigured: false,
+    imageProvider: 'not_configured',
+    imageModel: null,
+    portraitAnalysisConfigured: false,
+    portraitGenerationConfigured: false,
   }))
 
   useEffect(() => {
     let active = true
-    const configuration = getServiceConfiguration()
-    if (configuration.healthConfigured) {
-      checkBackendHealth().then((health) => {
-        if (active) setBackendStatus({ ...configuration, ...health })
-      })
+    async function pollHealth() {
+      const configuration = getServiceConfiguration()
+      if (!configuration.healthConfigured) {
+        if (active) setBackendStatus({
+          ...configuration,
+          status: 'offline',
+          message: 'Health check URL is not configured.',
+          imageGenerationConfigured: false,
+          imageProvider: 'not_configured',
+          imageModel: null,
+        })
+        return
+      }
+      if (active) setBackendStatus((current) => ({ ...current, ...configuration, status: 'checking', message: 'Checking backend health…' }))
+      const health = await checkBackendHealth()
+      if (active) setBackendStatus((current) => ({ ...current, ...configuration, ...health }))
     }
-    return () => { active = false }
+    void pollHealth()
+    const intervalId = window.setInterval(() => { void pollHealth() }, 5_000)
+    return () => {
+      active = false
+      window.clearInterval(intervalId)
+    }
   }, [])
 
   function navigate(nextPage) {
@@ -116,8 +137,9 @@ function App() {
 
   async function refreshBackend() {
     const configuration = getServiceConfiguration()
+    setBackendStatus((current) => ({ ...current, ...configuration, status: 'checking', message: 'Checking backend health…' }))
     const health = await checkBackendHealth()
-    setBackendStatus({ ...configuration, ...health })
+    setBackendStatus((current) => ({ ...current, ...configuration, ...health }))
   }
 
   const page = pageTitles[pageId] ? pageId : 'dashboard'
@@ -126,6 +148,8 @@ function App() {
     ? backendStatus.analysisMode === 'live' ? 'AI CONNECTED' : 'DEMO ANALYZER'
     : backendStatus.status === 'offline'
       ? 'BACKEND OFFLINE'
+      : backendStatus.status === 'checking'
+        ? 'CHECKING'
       : backendStatus.analysisConfigured
         ? 'ANALYSIS CONFIGURED'
         : 'DEMO MODE'

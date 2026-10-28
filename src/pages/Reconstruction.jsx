@@ -2,7 +2,10 @@ import { useMemo, useRef, useState } from 'react'
 import { AlertCircle, ArrowDownToLine, ArrowUpRight, ChevronDown, CircleHelp, Crosshair, FilePlus2, Image, Info, LoaderCircle, LockKeyhole, MapPin, Save, ScanLine, ShieldAlert, Sparkles, TextQuote, Trash2 } from 'lucide-react'
 import SceneCanvas, { SceneControls } from '../components/SceneCanvas.jsx'
 import TrustLayer from '../components/TrustLayer.jsx'
+import SubjectPortrait from '../components/SubjectPortrait.jsx'
 import { buildTrustDetails } from '../utils/trustLayer.js'
+import { generateSceneImage } from '../services/sceneImage.js'
+import { getImageGenerationUrl } from '../services/sceneApi.js'
 
 function Provenance({ status }) {
   const label = { reported: 'WITNESS REPORTED', manual: 'MANUALLY PLACED', illustrative: 'ILLUSTRATIVE PLACEMENT', unknown: 'POSITION UNKNOWN' }[status] || 'POSITION UNKNOWN'
@@ -37,8 +40,25 @@ function AnalysisPanel({ scene, selectedId, onSelect, onSelectDetail, trustDetai
   </aside>
 }
 
-function IllustrationUnavailable() {
-  return <div className="illustration-unavailable"><div className="illustration-frame"><div className="illustration-cross"><Image size={24} strokeWidth={1.2} /></div><span>NO IMAGE PROVIDER CONNECTED</span><p>Scene illustrations are not generated in this prototype.</p><div className="illustration-placeholder-lines"><i /><i /><i /></div><button className="button button-small button-muted" disabled title="Image generation is not configured"><LockKeyhole size={13} /> Unavailable</button></div><p className="illustration-disclaimer">Illustrative reconstruction — not verified evidence.</p></div>
+function SceneImagePreview({ scene, result, loading, error }) {
+  return <div className="illustration-unavailable scene-image-preview">
+    {result ? <figure className="generated-image-figure">
+      <img className="generated-scene-image" src={result.image_url} alt="AI-generated illustrative scene based on the witness description" />
+      <figcaption>{result.description} · {result.provider} / {result.mode}</figcaption>
+    </figure> : <div className="illustration-frame">
+      <div className="illustration-cross"><Image size={24} strokeWidth={1.2} /></div>
+      <span>AI-GENERATED SCENE ILLUSTRATION</span>
+      <p>{scene
+        ? 'Generate a neutral visual from the structured analysis. Unknown details remain unconfirmed.'
+        : 'Generate a scene analysis before requesting an illustration.'}</p>
+      {!scene && <div className="illustration-placeholder-lines"><i /><i /><i /></div>}
+      <p className="image-provider-setup"><LockKeyhole size={13} /> Requires OPENAI_API_KEY in backend/.env.</p>
+    </div>}
+    {loading && <p className="image-generation-status" role="status">Requesting an illustration from the image provider. This may take up to two minutes.</p>}
+    {error && <div className="service-error image-generation-error" role="alert"><AlertCircle size={14} /><span>{error}</span></div>}
+    {result?.warnings?.length > 0 && <ul className="image-generation-warnings">{result.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+    <p className="illustration-disclaimer">AI-generated illustrative scene based on the supplied witness description. This image is not verified evidence or an exact reconstruction.</p>
+  </div>
 }
 
 export default function Reconstruction({ scene, onSetScene, onGenerate, onLoadSample, onSave, onExport, isSaved, backendStatus, loading, error, onClearError }) {
@@ -47,7 +67,10 @@ export default function Reconstruction({ scene, onSetScene, onGenerate, onLoadSa
   const [gridVisible, setGridVisible] = useState(true)
   const [zoom, setZoom] = useState(1)
   const [mode, setMode] = useState('layout')
+  const [visualView, setVisualView] = useState('scene')
   const [validation, setValidation] = useState('')
+  const [imageState, setImageState] = useState({ sceneId: null, result: null, error: '' })
+  const [imageLoading, setImageLoading] = useState(false)
   const statementRef = useRef(null)
   const trustDetails = useMemo(() => buildTrustDetails(scene, scene?.statement || statement), [scene, statement])
   const selectedDetail = trustDetails.find((detail) => detail.id === selectedDetailId)
@@ -56,9 +79,14 @@ export default function Reconstruction({ scene, onSetScene, onGenerate, onLoadSa
     ? 'AI CONNECTED'
     : backendStatus.status === 'offline'
       ? 'BACKEND OFFLINE'
+      : backendStatus.status === 'checking'
+        ? 'CHECKING'
       : backendStatus.analysisConfigured
         ? 'ANALYSIS CONFIGURED'
         : 'DEMO MODE'
+
+  const imageResult = imageState.sceneId === scene?.id ? imageState.result : null
+  const imageError = imageState.sceneId === scene?.id ? imageState.error : ''
 
   function submit(event) {
     event.preventDefault()
@@ -68,6 +96,30 @@ export default function Reconstruction({ scene, onSetScene, onGenerate, onLoadSa
     }
     setValidation('')
     onGenerate(statement.trim())
+  }
+
+  async function generateImage() {
+    if (!scene || !(scene.statement || statement).trim()) {
+      if (scene) setImageState({ sceneId: scene.id, result: null, error: 'Generate a scene analysis before requesting an illustration.' })
+      return
+    }
+    setMode('image')
+    setImageLoading(true)
+    try {
+      const result = await generateSceneImage(
+        { ...scene, statement: scene.statement || statement },
+        getImageGenerationUrl(),
+      )
+      setImageState({ sceneId: scene.id, result, error: '' })
+    } catch (requestError) {
+      setImageState({
+        sceneId: scene.id,
+        result: null,
+        error: requestError.message || 'Image generation failed. Try again.',
+      })
+    } finally {
+      setImageLoading(false)
+    }
   }
 
   function updateObjectPosition(id, point) {
@@ -111,17 +163,21 @@ export default function Reconstruction({ scene, onSetScene, onGenerate, onLoadSa
           {validation && <p className="form-error"><AlertCircle size={13} />{validation}</p>}
           <div className="statement-actions"><button className="button button-lime button-generate" type="submit" disabled={loading}><span>{loading ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}</span>{loading ? 'Analyzing...' : 'Generate Scene Analysis'}<ArrowUpRight size={14} /></button><button className="button button-muted" type="button" onClick={loadSample}><FilePlus2 size={14} />Load Sample</button><button className="icon-control clear-statement" type="button" onClick={() => { setStatement(''); setValidation(''); setSelectedDetailId(''); onSetScene(null); onClearError() }} aria-label="Clear account" title="Clear account"><Trash2 size={14} /></button></div>
         </form>
-        <div className="privacy-callout"><LockKeyhole size={13} /><span>Local browser session. Avoid entering sensitive case data.</span></div>
+        <div className="privacy-callout"><LockKeyhole size={13} /><span>Image requests send this statement and analysis to OpenAI. Avoid sensitive case data.</span></div>
         {!backendStatus.analysisConfigured && <div className="service-warning"><AlertCircle size={14} /><span><strong>Analysis unavailable</strong> No reconstruction endpoint is configured. Load the sample to explore the workspace.</span></div>}
         {error && <div className="service-error" role="alert"><AlertCircle size={14} /><span>{error}</span><button onClick={onClearError} aria-label="Dismiss error">×</button></div>}
       </section>
 
       <section className="scene-panel">
-        <div className="panel-heading scene-panel-heading"><div><span className="mini-label">02 / VISUAL CONTEXT</span><h2>Scene reconstruction</h2></div><span className="schematic-badge"><i /> SCHEMATIC</span></div>
-        <SceneControls gridVisible={gridVisible} onGridToggle={() => setGridVisible((visible) => !visible)} zoom={zoom} onZoom={(amount) => setZoom((current) => Math.max(.7, Math.min(1.6, current + amount * .15)))} onReset={() => { setZoom(1); setSelectedDetailId('') }} mode={mode} onMode={setMode} />
-        {mode === 'layout' ? <div className="canvas-stage"><SceneCanvas objects={scene?.objects || []} selectedId={selectedId} onSelect={selectSceneObject} onMove={updateObjectPosition} gridVisible={gridVisible} zoom={zoom} />{!scene && <div className="canvas-empty"><span className="canvas-empty-icon"><Crosshair size={18} /></span><strong>Your scene, at a glance.</strong><span>Load a sample case to explore the interactive layout.</span></div>}{loading && <div className="canvas-loading"><LoaderCircle className="spin" size={23} /><span>Awaiting analysis response</span></div>}</div> : <IllustrationUnavailable />}
-        <div className="canvas-legend"><span><i className="legend-reported" /> Witness reported</span><span><i className="legend-manual" /> Manually placed</span><span><i className="legend-illustrative" /> Illustrative / unknown</span><span className="legend-disclaimer">ILLUSTRATIVE · NOT VERIFIED EVIDENCE</span></div>
-        {selectedId && scene?.objects.find((object) => object.id === selectedId) && <div className="selection-note"><MapPin size={12} /> Drag marker to reposition. Manual placement is clearly labeled, not a witness-reported fact.</div>}
+        <div className="panel-heading scene-panel-heading"><div><span className="mini-label">02 / VISUAL CONTEXT</span><h2>{visualView === 'scene' ? 'Scene reconstruction' : 'Subject portrait'}</h2></div><div className="scene-panel-header-actions"><div className="visual-mode-tabs" role="tablist" aria-label="Visual context mode"><button className={`visual-mode-tab${visualView === 'scene' ? ' visual-mode-tab-active' : ''}`} type="button" role="tab" id="visual-mode-scene" aria-selected={visualView === 'scene'} aria-controls="visual-context-panel" onClick={() => setVisualView('scene')}>Scene</button><button className={`visual-mode-tab${visualView === 'portrait' ? ' visual-mode-tab-active' : ''}`} type="button" role="tab" id="visual-mode-portrait" aria-selected={visualView === 'portrait'} aria-controls="visual-context-panel" onClick={() => setVisualView('portrait')}>Subject portrait</button></div>{visualView === 'scene' && <><button className="button button-lime button-small scene-image-trigger" type="button" onClick={generateImage} disabled={!scene || imageLoading}><Sparkles size={13} />{imageLoading ? 'Generating...' : imageResult ? 'Regenerate Scene Image' : 'Generate Scene Image'}</button><span className="schematic-badge"><i /> SCHEMATIC</span></>}</div></div>
+        <div id="visual-context-panel" role="tabpanel" aria-labelledby={visualView === 'scene' ? 'visual-mode-scene' : 'visual-mode-portrait'}>
+          {visualView === 'portrait' ? <SubjectPortrait /> : <>
+            <SceneControls gridVisible={gridVisible} onGridToggle={() => setGridVisible((visible) => !visible)} zoom={zoom} onZoom={(amount) => setZoom((current) => Math.max(.7, Math.min(1.6, current + amount * .15)))} onReset={() => { setZoom(1); setSelectedDetailId('') }} mode={mode} onMode={setMode} />
+            {mode === 'layout' ? <div className="canvas-stage"><SceneCanvas objects={scene?.objects || []} selectedId={selectedId} onSelect={selectSceneObject} onMove={updateObjectPosition} gridVisible={gridVisible} zoom={zoom} />{!scene && <div className="canvas-empty"><span className="canvas-empty-icon"><Crosshair size={18} /></span><strong>Your scene, at a glance.</strong><span>Load a sample case to explore the interactive layout.</span></div>}{loading && <div className="canvas-loading"><LoaderCircle className="spin" size={23} /><span>Awaiting analysis response</span></div>}</div> : <SceneImagePreview scene={scene} result={imageResult} loading={imageLoading} error={imageError} />}
+            <div className="canvas-legend"><span><i className="legend-reported" /> Witness reported</span><span><i className="legend-manual" /> Manually placed</span><span><i className="legend-illustrative" /> Illustrative / unknown</span><span className="legend-disclaimer">ILLUSTRATIVE · NOT VERIFIED EVIDENCE</span></div>
+            {selectedId && scene?.objects.find((object) => object.id === selectedId) && <div className="selection-note"><MapPin size={12} /> Drag marker to reposition. Manual placement is clearly labeled, not a witness-reported fact.</div>}
+          </>}
+        </div>
       </section>
 
       <AnalysisPanel scene={scene} selectedId={selectedId} onSelect={selectSceneObject} onSelectDetail={selectTrustDetail} trustDetails={trustDetails} onSave={onSave} onExport={onExport} isSaved={isSaved} />
