@@ -1,17 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Menu, ShieldCheck } from 'lucide-react'
 import Sidebar from './components/Sidebar.jsx'
+import TraceWorkspace from './components/TraceWorkspace.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import HowItWorks from './pages/HowItWorks.jsx'
 import Reconstruction from './pages/Reconstruction.jsx'
 import SceneLibrary from './pages/SceneLibrary.jsx'
 import Settings from './pages/Settings.jsx'
 import { sampleScene } from './data/sampleScene.js'
-import { analyzeWitnessStatement, checkBackendHealth, getServiceConfiguration } from './services/sceneApi.js'
+import { analyzeWitnessStatement } from './services/sceneApi.js'
 import { deleteScene, getSavedScenes, saveScene } from './services/sceneStorage.js'
+import useBackendHealth from './hooks/useBackendHealth.js'
 import './App.css'
 
 const pageTitles = {
+  workspace: 'Workspace',
   dashboard: 'Dashboard',
   reconstruction: 'New Reconstruction',
   library: 'Scene Library',
@@ -20,7 +23,7 @@ const pageTitles = {
 }
 
 function App() {
-  const [pageId, setPageId] = useState('dashboard')
+  const [pageId, setPageId] = useState('workspace')
   const [scene, setScene] = useState(null)
   const [savedScenes, setSavedScenes] = useState(() => getSavedScenes())
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -28,43 +31,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
-  const [backendStatus, setBackendStatus] = useState(() => ({
-    ...getServiceConfiguration(),
-    status: 'checking',
-    message: 'Checking backend health…',
-    imageGenerationConfigured: false,
-    imageProvider: 'not_configured',
-    imageModel: null,
-    portraitAnalysisConfigured: false,
-    portraitGenerationConfigured: false,
-  }))
-
-  useEffect(() => {
-    let active = true
-    async function pollHealth() {
-      const configuration = getServiceConfiguration()
-      if (!configuration.healthConfigured) {
-        if (active) setBackendStatus({
-          ...configuration,
-          status: 'offline',
-          message: 'Health check URL is not configured.',
-          imageGenerationConfigured: false,
-          imageProvider: 'not_configured',
-          imageModel: null,
-        })
-        return
-      }
-      if (active) setBackendStatus((current) => ({ ...current, ...configuration, status: 'checking', message: 'Checking backend health…' }))
-      const health = await checkBackendHealth()
-      if (active) setBackendStatus((current) => ({ ...current, ...configuration, ...health }))
-    }
-    void pollHealth()
-    const intervalId = window.setInterval(() => { void pollHealth() }, 5_000)
-    return () => {
-      active = false
-      window.clearInterval(intervalId)
-    }
-  }, [])
+  const { status: backendStatus, refresh: refreshBackend } = useBackendHealth()
 
   function navigate(nextPage) {
     setPageId(nextPage)
@@ -93,17 +60,13 @@ function App() {
     try {
       const result = await analyzeWitnessStatement(statement)
       setScene(result)
-      setBackendStatus((current) => ({
-        ...current,
-        status: 'online',
-        analysisMode: result.analysisMode,
-        message: `Backend healthy; ${result.analysisMode === 'demo' ? 'rule-based demo analyzer' : 'live AI analyzer'}.`,
-      }))
       setToast(result.analysisMode === 'demo'
         ? 'Rule-based demo analysis received. Review every detail against the original statement.'
         : 'Live analysis response received. Review every detail against the original statement.')
+      return result
     } catch (requestError) {
       setError(requestError.message || 'Analysis failed. Try again or explore the sample case.')
+      return null
     } finally {
       setLoading(false)
     }
@@ -135,13 +98,6 @@ function App() {
     setToast('Scene JSON exported.')
   }
 
-  async function refreshBackend() {
-    const configuration = getServiceConfiguration()
-    setBackendStatus((current) => ({ ...current, ...configuration, status: 'checking', message: 'Checking backend health…' }))
-    const health = await checkBackendHealth()
-    setBackendStatus((current) => ({ ...current, ...configuration, ...health }))
-  }
-
   const page = pageTitles[pageId] ? pageId : 'dashboard'
   const isSaved = Boolean(scene && savedScenes.some((saved) => saved.id === scene.id))
   const connectionLabel = backendStatus.status === 'online'
@@ -164,6 +120,7 @@ function App() {
       </header>
       {toast && <div className="app-toast" role="status"><span>{toast}</span><button onClick={() => setToast('')} aria-label="Dismiss message">×</button></div>}
       <div className="page-container">
+        {page === 'workspace' && <TraceWorkspace backendStatus={backendStatus} onRefreshBackend={refreshBackend} onAnalyze={generate} analysisLoading={loading} analysisError={error} onClearAnalysisError={() => setError('')} />}
         {page === 'dashboard' && <Dashboard sample={sampleScene} savedScenes={savedScenes} backendStatus={backendStatus} onCreate={startNew} onSample={openSample} onOpenScene={(saved) => { setScene(saved); setPageId('reconstruction') }} onExploreLibrary={() => navigate('library')} />}
         {page === 'reconstruction' && <Reconstruction scene={scene} onSetScene={setScene} onGenerate={generate} onLoadSample={openSample} onSave={persistScene} onExport={exportScene} isSaved={isSaved} backendStatus={backendStatus} loading={loading} error={error} onClearError={() => setError('')} />}
         {page === 'library' && <SceneLibrary scenes={savedScenes} onOpen={(saved) => { setScene(saved); setPageId('reconstruction') }} onDelete={removeScene} onCreate={startNew} />}

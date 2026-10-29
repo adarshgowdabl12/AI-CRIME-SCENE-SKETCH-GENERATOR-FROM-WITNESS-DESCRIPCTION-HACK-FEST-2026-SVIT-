@@ -81,7 +81,7 @@ function TraitRow({ name, label, trait, statement, disabled, onDraftChange, onCo
   </article>
 }
 
-export default function SubjectPortrait() {
+export default function SubjectPortrait({ backendStatus } = {}) {
   const [description, setDescription] = useState('')
   const [analysis, setAnalysis] = useState(null)
   const [attributes, setAttributes] = useState({})
@@ -97,6 +97,10 @@ export default function SubjectPortrait() {
       && !TRAITS.some(([name]) => Object.hasOwn(drafts, name) && drafts[name] !== (attributes[name]?.value || '')),
     [attributes, description, drafts],
   )
+  const analysisAvailable = !backendStatus
+    || (backendStatus.status === 'online' && backendStatus.portraitAnalysisConfigured)
+  const generationAvailable = !backendStatus
+    || (backendStatus.status === 'online' && backendStatus.portraitGenerationConfigured)
 
   async function analyze(event) {
     event.preventDefault()
@@ -224,10 +228,11 @@ export default function SubjectPortrait() {
         <span id="portrait-description-help">Avoid names and identifying information. The statement is sent to the backend for trait analysis.</span>
         <span id="portrait-description-count">{description.length} / 5,000</span>
       </div>
-      <button className="button button-lime" type="submit" disabled={Boolean(busy) || description.trim().length < 10}>
+      <button className="button button-lime" type="submit" disabled={Boolean(busy) || description.trim().length < 10 || !analysisAvailable}>
         {busy === 'analysis' ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
         {busy === 'analysis' ? 'Analyzing traits...' : 'Analyze Description'}
       </button>
+      {!analysisAvailable && <p className="portrait-generate-hint">Portrait analysis requires an online backend with Gemini configured.</p>}
     </form>
 
     {error && <div className="service-error portrait-error" role="alert"><AlertCircle size={14} /><span>{error}</span></div>}
@@ -260,11 +265,12 @@ export default function SubjectPortrait() {
           <option value="pencil_sketch">Pencil sketch</option>
           <option value="soft_color_illustration">Soft color</option>
         </select>
-        <button className="button button-lime" type="button" onClick={generatePortrait} disabled={Boolean(busy) || !hasUsableDescription || !analysis || analysis.target_unclear}>
+        <button className="button button-lime" type="button" onClick={generatePortrait} disabled={Boolean(busy) || !hasUsableDescription || !analysis || analysis.target_unclear || !generationAvailable}>
           {busy === 'generation' ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}
           {busy === 'generation' ? 'Generating portrait...' : image ? 'Regenerate portrait' : 'Generate Subject Portrait'}
         </button>
       </div>
+      {!generationAvailable && <p className="portrait-generate-hint">Portrait generation requires an online backend with Gemini image generation configured.</p>}
       {!hasUsableDescription && <p className="portrait-generate-hint">At least one witness-stated or manually confirmed trait is required.</p>}
     </>}
 

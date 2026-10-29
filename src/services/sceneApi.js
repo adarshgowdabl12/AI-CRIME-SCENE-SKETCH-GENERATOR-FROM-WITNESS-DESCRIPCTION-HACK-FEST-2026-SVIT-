@@ -1,9 +1,10 @@
 import { buildTrustDetails } from '../utils/trustLayer.js'
 
-const reconstructionUrl = import.meta.env.VITE_RECONSTRUCTION_URL || '/api/analyze-scene'
-const healthUrl = import.meta.env.VITE_BACKEND_HEALTH_URL || '/health'
-const imageGenerationUrl = import.meta.env.VITE_IMAGE_GENERATION_URL || '/api/generate-scene-image'
-const apiBaseUrl = String(import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '')
+const environment = import.meta.env || {}
+const reconstructionUrl = environment.VITE_RECONSTRUCTION_URL || '/api/analyze-scene'
+const healthUrl = environment.VITE_BACKEND_HEALTH_URL || '/health'
+const imageGenerationUrl = environment.VITE_IMAGE_GENERATION_URL || '/api/generate-scene-image'
+const apiBaseUrl = String(environment.VITE_API_BASE_URL || '').replace(/\/+$/, '')
 
 const portraitApiUrl = (path) => `${apiBaseUrl}${path}`
 

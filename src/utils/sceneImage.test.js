@@ -51,9 +51,9 @@ test('returns a valid generated image response', async () => {
       ok: true,
       json: async () => ({
         generation_status: 'generated',
-        image_data_url: 'data:image/png;base64,AA==',
-        provider: 'openai',
-        mode: 'gpt-image-1',
+        image_url: '/generated/scene.png',
+        provider: 'gemini',
+        model: 'gemini-3.1-flash-image',
         description: 'Illustrative rendering.',
         warnings: [],
       }),
@@ -62,7 +62,8 @@ test('returns a valid generated image response', async () => {
   try {
     const result = await generateSceneImage(sampleScene)
     assert.equal(result.generation_status, 'generated')
-    assert.equal(result.provider, 'openai')
+    assert.equal(result.provider, 'gemini')
+    assert.equal(result.image_url, '/generated/scene.png')
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -73,10 +74,10 @@ test('surfaces missing provider configuration from the backend', async () => {
   globalThis.fetch = async () => ({
     ok: false,
     status: 503,
-    json: async () => ({ detail: 'Set OPENAI_API_KEY in backend/.env.' }),
+    json: async () => ({ detail: { message: 'Set GEMINI_API_KEY in backend/.env.' } }),
   })
   try {
-    await assert.rejects(generateSceneImage(sampleScene), /Set OPENAI_API_KEY/)
+    await assert.rejects(generateSceneImage(sampleScene), /Set GEMINI_API_KEY/)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -108,14 +109,14 @@ test('surfaces an image-generation timeout clearly', async () => {
   }
 })
 
-test('rejects malformed or oversized successful image responses', async () => {
+test('rejects successful responses with an invalid generated-image URL', async () => {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async () => ({
     ok: true,
-    json: async () => ({ generation_status: 'generated', image_data_url: 'not-an-image' }),
+    json: async () => ({ generation_status: 'generated', image_url: 'not-an-image' }),
   })
   try {
-    await assert.rejects(generateSceneImage(sampleScene), /invalid or oversized image/)
+    await assert.rejects(generateSceneImage(sampleScene), /invalid generated-image URL/)
   } finally {
     globalThis.fetch = originalFetch
   }

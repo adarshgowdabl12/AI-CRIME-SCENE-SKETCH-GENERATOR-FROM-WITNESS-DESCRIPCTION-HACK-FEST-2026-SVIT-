@@ -52,7 +52,7 @@ function SceneImagePreview({ scene, result, loading, error }) {
         ? 'Generate a neutral visual from the structured analysis. Unknown details remain unconfirmed.'
         : 'Generate a scene analysis before requesting an illustration.'}</p>
       {!scene && <div className="illustration-placeholder-lines"><i /><i /><i /></div>}
-      <p className="image-provider-setup"><LockKeyhole size={13} /> Requires OPENAI_API_KEY in backend/.env.</p>
+      <p className="image-provider-setup"><LockKeyhole size={13} /> Requires GEMINI_API_KEY in backend/.env.</p>
     </div>}
     {loading && <p className="image-generation-status" role="status">Requesting an illustration from the image provider. This may take up to two minutes.</p>}
     {error && <div className="service-error image-generation-error" role="alert"><AlertCircle size={14} /><span>{error}</span></div>}
@@ -163,7 +163,7 @@ export default function Reconstruction({ scene, onSetScene, onGenerate, onLoadSa
           {validation && <p className="form-error"><AlertCircle size={13} />{validation}</p>}
           <div className="statement-actions"><button className="button button-lime button-generate" type="submit" disabled={loading}><span>{loading ? <LoaderCircle className="spin" size={15} /> : <Sparkles size={15} />}</span>{loading ? 'Analyzing...' : 'Generate Scene Analysis'}<ArrowUpRight size={14} /></button><button className="button button-muted" type="button" onClick={loadSample}><FilePlus2 size={14} />Load Sample</button><button className="icon-control clear-statement" type="button" onClick={() => { setStatement(''); setValidation(''); setSelectedDetailId(''); onSetScene(null); onClearError() }} aria-label="Clear account" title="Clear account"><Trash2 size={14} /></button></div>
         </form>
-        <div className="privacy-callout"><LockKeyhole size={13} /><span>Image requests send this statement and analysis to OpenAI. Avoid sensitive case data.</span></div>
+        <div className="privacy-callout"><LockKeyhole size={13} /><span>Image requests send this statement and analysis to Google Gemini. Avoid sensitive case data.</span></div>
         {!backendStatus.analysisConfigured && <div className="service-warning"><AlertCircle size={14} /><span><strong>Analysis unavailable</strong> No reconstruction endpoint is configured. Load the sample to explore the workspace.</span></div>}
         {error && <div className="service-error" role="alert"><AlertCircle size={14} /><span>{error}</span><button onClick={onClearError} aria-label="Dismiss error">×</button></div>}
       </section>

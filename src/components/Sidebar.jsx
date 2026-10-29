@@ -1,6 +1,7 @@
 import { Activity, BookOpen, ChevronLeft, ChevronRight, CircleHelp, Crosshair, PanelLeftClose, PanelLeftOpen, Settings2, Sparkles } from 'lucide-react'
 
 const items = [
+  { id: 'workspace', label: 'Workspace', icon: Sparkles },
   { id: 'dashboard', label: 'Dashboard', icon: Activity },
   { id: 'reconstruction', label: 'New Reconstruction', icon: Sparkles },
   { id: 'library', label: 'Scene Library', icon: BookOpen },
